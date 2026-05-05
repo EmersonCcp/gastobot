@@ -19,13 +19,17 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy server built files and dependencies
+# Copiar el package.json de la raíz (Para que Railway encuentre los scripts)
+COPY package*.json ./
+
+# Copiar archivos compilados y dependencias del servidor
 COPY --from=server-builder /app/server/dist ./server/dist
 COPY --from=server-builder /app/server/package*.json ./server/
 COPY --from=server-builder /app/server/node_modules ./server/node_modules
 
-# Copy client built files
+# Copiar archivos compilados del cliente
 COPY --from=client-builder /app/client/dist ./client/dist
 
 EXPOSE 3001
-CMD ["node", "server/dist/index.js"]
+# Ejecutamos usando el script de la raíz
+CMD ["npm", "start"]
