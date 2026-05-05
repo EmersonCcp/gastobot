@@ -81,8 +81,8 @@ const clientPath = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientPath));
 
 // The "catchall" handler: for any request that doesn't
-// match one above, send back React's index.html file.
-app.get('/:path*', (req, res) => {
+// match one of the API routes, send back React's index.html file.
+app.use((req, res) => {
   res.sendFile(path.join(clientPath, 'index.html'));
 });
 
