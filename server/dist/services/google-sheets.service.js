@@ -1,0 +1,158 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.addCaja = exports.getSummary = exports.appendToSheet = exports.getCajas = void 0;
+const googleapis_1 = require("googleapis");
+const auth = new googleapis_1.google.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT || '{}'),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+const sheets = googleapis_1.google.sheets({ version: 'v4', auth });
+const getMonthName = (dateStr) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const months = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+};
+const getCajas = async () => {
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const sheetName = 'Configuracion';
+    try {
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${sheetName}!A:A`,
+        });
+        const rows = response.data.values || [];
+        return rows.flat().filter(c => c !== 'Cajas' && c);
+    }
+    catch (error) {
+        return ['Efectivo'];
+    }
+};
+exports.getCajas = getCajas;
+const appendToSheet = async (data) => {
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const sheetName = getMonthName(data.fecha);
+    try {
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+        const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === sheetName);
+        if (!sheetExists) {
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                requestBody: {
+                    requests: [{ addSheet: { properties: { title: sheetName } } }]
+                }
+            });
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${sheetName}!A1:G1`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: {
+                    values: [['Fecha', 'Descripción', 'Monto', 'Categoría', 'Método de Pago', 'Tipo', 'Caja']]
+                }
+            });
+        }
+    }
+    catch (error) {
+        console.log("Error verificando/creando hoja:", error);
+    }
+    const range = `${sheetName}!A:G`;
+    const values = [[data.fecha, data.descripcion, data.monto, data.categoria, data.metodo_pago, data.tipo, data.caja]];
+    await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values },
+    });
+};
+exports.appendToSheet = appendToSheet;
+const getSummary = async () => {
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetTitles = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
+    // 1. Obtener lista oficial de cajas primero
+    const listaOficialCajas = await (0, exports.getCajas)();
+    let saldosPorCaja = {};
+    listaOficialCajas.forEach(c => saldosPorCaja[c] = 0);
+    let ingresos = 0;
+    let egresos = 0;
+    let todosLosMovimientos = [];
+    for (const title of sheetTitles) {
+        if (title === 'Configuracion')
+            continue;
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${title}!A:G`,
+        });
+        const rows = response.data.values || [];
+        rows.forEach((row, index) => {
+            if (index === 0 || row.length < 3)
+                return;
+            const movimiento = {
+                fecha: row[0],
+                descripcion: row[1],
+                monto: Number(row[2]) || 0,
+                categoria: row[3],
+                metodo_pago: row[4],
+                tipo: String(row[5]).toLowerCase(),
+                caja: row[6] || 'Efectivo'
+            };
+            // Buscar la clave oficial que coincida (case-insensitive)
+            const cajaKey = listaOficialCajas.find(c => c.toLowerCase() === movimiento.caja.toLowerCase()) || movimiento.caja;
+            if (!saldosPorCaja[cajaKey])
+                saldosPorCaja[cajaKey] = 0;
+            if (movimiento.tipo === 'ingreso') {
+                ingresos += movimiento.monto;
+                saldosPorCaja[cajaKey] += movimiento.monto;
+            }
+            else if (movimiento.tipo === 'egreso') {
+                egresos += movimiento.monto;
+                saldosPorCaja[cajaKey] -= movimiento.monto;
+            }
+            todosLosMovimientos.push(movimiento);
+        });
+    }
+    todosLosMovimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    return {
+        ingresos,
+        egresos,
+        balance: ingresos - egresos,
+        totalRegistros: todosLosMovimientos.length,
+        ultimosMovimientos: todosLosMovimientos.slice(0, 10),
+        saldosPorCaja
+    };
+};
+exports.getSummary = getSummary;
+const addCaja = async (nombre) => {
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const sheetName = 'Configuracion';
+    try {
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+        const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === sheetName);
+        if (!sheetExists) {
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                requestBody: {
+                    requests: [{ addSheet: { properties: { title: sheetName } } }]
+                }
+            });
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${sheetName}!A1`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [['Cajas']] }
+            });
+        }
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `${sheetName}!A:A`,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[nombre]] }
+        });
+    }
+    catch (error) {
+        console.error("Error al añadir caja:", error);
+    }
+};
+exports.addCaja = addCaja;

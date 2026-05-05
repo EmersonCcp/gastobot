@@ -1,0 +1,9 @@
+{
+  "name": "gastobot-root",
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build:all": "cd client && npm run build && cd ../server && npm run build",
+    "start": "node server/dist/index.js"
+  }
+}
