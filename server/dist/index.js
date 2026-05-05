@@ -79,7 +79,7 @@ const clientPath = path_1.default.join(__dirname, '../../client/dist');
 app.use(express_1.default.static(clientPath));
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
-app.get('(.*)', (req, res) => {
+app.get('/:path*', (req, res) => {
     res.sendFile(path_1.default.join(clientPath, 'index.html'));
 });
 app.listen(port, () => {
